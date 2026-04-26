@@ -1,0 +1,178 @@
+#include <Adafruit_LiquidCrystal.h> //sterownik mcp
+#include <Servo.h>
+
+// C++ code
+//
+
+Adafruit_LiquidCrystal lcd(0); //lcd init
+Servo servo;
+
+//zmienna globalna 
+int button_flag = 1; 
+int last_button_flag =-1;
+int pot_1_last =-1;
+int pot_2_last =-1;
+int last_button_state = 0; //musi byc na 1 zeby odczytac pin
+
+void setup() {
+    //pullup bo nie ma pulldown, wiec nie trzeba external 
+pinMode(12, INPUT_PULLUP); //button init
+pinMode(A0, INPUT); //potentiometer_servo init
+pinMode(A1, INPUT); //potentiometer_engine init
+pinMode(3, OUTPUT); //silnik init (D3)
+pinMode(5, OUTPUT); //silnik init (D3)
+  servo.attach(A2); //map servo (A2)
+
+  Serial.begin(115200); // init delay
+  if (!lcd.begin(16, 2)) { //warunek startu- pin check
+    Serial.println("Nieprawidlowe polaczenie");
+    while(1);
+  }
+  lcd.setBacklight(HIGH);
+
+lcd.setCursor(15, 0);
+lcd.print("%");
+}
+
+
+
+
+//funkcja do wyswietlania zalezna od przycisku
+void display(int x)
+{
+  if(x & 0x1) //sprawdza czy nieparzysta
+  { 
+     lcd.setCursor(0, 0);
+     lcd.print("Speed:"); //liczba znakow: 6/16
+  }
+  else
+  {
+    lcd.setCursor(0, 0);
+  lcd.print("Servo_pos:"); //liczba znakow: 10
+  }
+}
+
+
+
+
+
+
+//funkcja do wyswietlania aktualnych wartosci
+void check_values(int button_flag,int pot_2, float pot_1)
+{    
+  if(button_flag & 0x1)
+  { 
+    lcd.setCursor(7, 0); // 6+1
+    lcd.print("    ");	
+    lcd.setCursor(7, 0);
+    lcd.print(pot_2);	
+  }else
+  {
+    lcd.setCursor(11, 0); // 10+1
+    lcd.print("    ");
+    lcd.setCursor(11, 0);
+    lcd.print( (int)(pot_1* 0.556) ); //przeskalowanie na 100 i typcasting na int zeby usunac wartosc po ,
+  } 
+}
+
+
+
+
+
+
+
+int wygladzanie(int x)
+{
+    long value = 0; //int za male
+    //wygladzanie- usrednienie z 10wynikow
+    for(int i=0; i<10; i++)
+    {
+      value += analogRead(x);
+    }
+  //typecasting na mniejszy typ na wszelki i return wartosci
+  return (int)value/10;
+}
+
+
+
+
+
+
+
+void refresh_screen (int pot_1, int pot_2) {
+  if(button_flag != last_button_flag) 
+  {
+    display(button_flag);
+    last_button_flag = button_flag;
+  }
+  if( (button_flag & 0x1 && pot_2 != pot_2_last ) || ( !(button_flag & 0x1) && pot_1 != pot_1_last) ) 
+  {
+    check_values(button_flag, pot_2, pot_1);
+    pot_1_last = pot_1;
+    pot_2_last= pot_2;
+  }
+}
+
+
+
+
+
+//jezeli trzymasz przycisk to last button state nie ma kiedy zmienic wartosci z button state
+void read_button (int pot_1, int pot_2) {
+  int button_state = digitalRead(12); 
+  if(!button_state && last_button_state == 1)// po pierwszej iteracji jest mozliwy warunek
+  {  
+    button_flag++;
+    if(button_flag > 100) button_flag = 0;
+    lcd.setCursor(0, 0);
+    lcd.print("              "); // 14 spacji zeby nie dotytkalo znaku % na koncu
+    //debouncing to kondesator
+    pot_1_last = -1;
+    pot_2_last = -1;	
+  }
+  last_button_state = button_state; //w pierwszej iteracji przypisuje 1 szybciutko
+}
+
+
+
+
+
+
+int engine_directory(int kierunek){
+  		float pot_2 = 0; //bo przecinkowe
+  
+  if(kierunek > 512){
+		pot_2 = map(kierunek, 513, 1023, 0, 100);
+    	int cos = (int)(pot_2) *2.55; //tu przecinek niewskazny wiec dla pewnosci rzutujemy
+ 		analogWrite(3, cos );
+  		analogWrite(5, 0);
+  }else
+  {		
+    	pot_2 = map(kierunek, 511, 0, 0, -100);
+    	int cos = (int)(abs(pot_2) *2.55);
+   		analogWrite(3, 0);
+  		analogWrite(5, cos );
+  }
+  
+  return (int)pot_2;
+}
+
+
+
+
+
+
+void loop() {
+
+  float pot_1 = map(wygladzanie(A1), 0, 1023, 0, 180);//rozdzielczosc 10bit
+  
+  int kierunek = wygladzanie(A0); 
+  
+  int pot_2 = engine_directory(kierunek); //musi cos byc zeby nie bylo puste
+
+  servo.write(pot_1); //zmiana pozycji w dowolnym momencie
+  read_button(pot_1, pot_2);
+  refresh_screen(pot_1,pot_2);
+ 
+}
+
